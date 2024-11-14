@@ -6,6 +6,8 @@ import (
 	"fmt"
 )
 
+var urlMap = make(map[string]string)
+
 func ShortenURL(originalURL string) string {
 	// shorten the URL.
 
@@ -16,5 +18,12 @@ func ShortenURL(originalURL string) string {
 	hashURL := hex.EncodeToString(hash.Sum(nil))
 	shorterURL := hashURL[:6]
 
+	urlMap[shorterURL] = originalURL
+
 	return shorterURL
+}
+
+func GetOriginalURL(shortURL string) (string, bool) {
+	originalURL, exists := urlMap[shortURL]
+	return originalURL, exists
 }
