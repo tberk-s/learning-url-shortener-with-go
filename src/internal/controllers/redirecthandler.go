@@ -21,8 +21,6 @@ func RedirectHandler(database *db.DB) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-
-		// Ensure URL has protocol
 		if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
 			originalURL = "https://" + originalURL
 		}

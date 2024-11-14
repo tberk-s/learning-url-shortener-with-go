@@ -114,19 +114,25 @@ func New(opts ...Option) error {
 		WriteTimeout: DefaultWriteTimeout,
 		IdleTimeout:  DefaultIdleTimeout,
 	}
+
 	shutdown := make(chan os.Signal, 1)
 	webError := make(chan error)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		log.Println("Starting API server on", webServer.Addr)
-		webError <- webServer.ListenAndServe()
+		if err := webServer.ListenAndServe(); err != nil {
+			webError <- err
+		}
 	}()
 
 	select {
 	case err := <-webError:
+		log.Printf("Server error: %v", err)
 		ws.db.Close()
+
 		return err
+
 	case sig := <-shutdown:
 		log.Printf("Received shutdown signal: %s", sig)
 
@@ -135,11 +141,12 @@ func New(opts ...Option) error {
 
 		if err := webServer.Shutdown(ctx); err != nil {
 			log.Printf("Graceful shutdown failed, forcing server close: %v", err)
-			ws.db.Close() // Close DB after failed shutdown
-
-			return fmt.Errorf("error during server shutdown: %w", err)
 		}
+
 		ws.db.Close() // Close DB after successful shutdown
+		if ctx.Err() != nil {
+			log.Printf("Shutdown timed out: %v", ctx.Err())
+		}
 		log.Println("Server shutdown gracefully")
 	}
 
