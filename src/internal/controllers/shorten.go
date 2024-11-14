@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/db"
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/shortener"
@@ -30,8 +31,8 @@ func ShowShortenPage(db *db.DB) http.HandlerFunc {
 		}
 
 		shortURL := shortener.ShortenURL(originalURL)
-
-		if err := db.StoreURLs(shortURL, originalURL); err != nil {
+		time.Sleep(5 * time.Second)
+		if _, err := db.StoreURLs(shortURL, originalURL); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

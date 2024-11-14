@@ -11,9 +11,14 @@ func RedirectHandler(database *db.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		shortPath := r.URL.Path[1:]
 
+		if shortPath == "" {
+			http.Error(w, "URL not provided", http.StatusBadRequest)
+			return
+		}
+
 		originalURL, err := database.GetOriginalURL(shortPath)
 		if err != nil {
-			http.NotFound(w, r)
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 
@@ -22,6 +27,6 @@ func RedirectHandler(database *db.DB) http.HandlerFunc {
 			originalURL = "https://" + originalURL
 		}
 
-		http.Redirect(w, r, originalURL, http.StatusMovedPermanently)
+		http.Redirect(w, r, originalURL, http.StatusPermanentRedirect)
 	}
 }

@@ -20,7 +20,7 @@
 
     copyButton.addEventListener('click', function () {
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText("http://localhost:8080" + url).then(() => {
+            navigator.clipboard.writeText("http://localhost:8000" + url).then(() => {
                 alert('URL copied to clipboard!');
             }).catch(err => {
                 console.error('Failed to copy:', err);

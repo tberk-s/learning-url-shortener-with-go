@@ -30,9 +30,18 @@ func New(user, password, host, dbname string, port int) (*DB, error) {
 	return &DB{pool: pool}, nil
 }
 
-func (db *DB) StoreURLs(shortURL, originalURL string) error {
-	_, err := db.pool.Exec(context.Background(), "INSERT INTO urlmap (short_url, original_url) VALUES ($1, $2)", shortURL, originalURL)
-	return err
+func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
+	var existingShortURL string
+	err := db.pool.QueryRow(context.Background(),
+		"SELECT short_url FROM urlmap WHERE original_url = $1",
+		originalURL).Scan(&existingShortURL)
+
+	if err == nil {
+		return existingShortURL, nil
+	}
+
+	_, err = db.pool.Exec(context.Background(), "INSERT INTO urlmap (short_url, original_url) VALUES ($1, $2)", shortURL, originalURL)
+	return shortURL, err
 }
 
 func (db *DB) GetOriginalURL(shortURL string) (string, error) {

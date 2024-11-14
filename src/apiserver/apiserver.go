@@ -89,16 +89,23 @@ func New(opts ...Option) error {
 		ws.dbName,
 		ws.dbPort,
 	)
+
 	if err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
+
 	ws.db = database
-	defer ws.db.Close()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/shorten", controllers.ShowShortenPage(ws.db))
 	mux.HandleFunc("/home", controllers.ShowHomePage) // Move home page to explicit path
-	mux.HandleFunc("/", controllers.RedirectHandler(ws.db))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/home", http.StatusPermanentRedirect)
+		} else {
+			controllers.RedirectHandler(ws.db)
+		}
+	})
 
 	webServer := &http.Server{
 		Addr:         ":8000",
@@ -112,15 +119,13 @@ func New(opts ...Option) error {
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Println("Starting web server on port 8000")
-		if err := webServer.ListenAndServe(); err != nil {
-			log.Fatalf("Failed to start web server: %v", err)
-		}
+		log.Println("Starting API server on", webServer.Addr)
+		webError <- webServer.ListenAndServe()
 	}()
 
 	select {
 	case err := <-webError:
-
+		ws.db.Close()
 		return err
 	case sig := <-shutdown:
 		log.Printf("Received shutdown signal: %s", sig)
@@ -130,9 +135,11 @@ func New(opts ...Option) error {
 
 		if err := webServer.Shutdown(ctx); err != nil {
 			log.Printf("Graceful shutdown failed, forcing server close: %v", err)
+			ws.db.Close() // Close DB after failed shutdown
 
 			return fmt.Errorf("error during server shutdown: %w", err)
 		}
+		ws.db.Close() // Close DB after successful shutdown
 		log.Println("Server shutdown gracefully")
 	}
 
