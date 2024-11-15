@@ -1,8 +1,7 @@
-package controllers
+package urlshortenerhandler
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/db"
 )
@@ -21,9 +20,9 @@ func RedirectHandler(database *db.DB) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
+		/*if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
 			originalURL = "https://" + originalURL
-		}
+		}*/
 
 		http.Redirect(w, r, originalURL, http.StatusPermanentRedirect)
 	}

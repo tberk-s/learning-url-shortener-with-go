@@ -1,22 +1,36 @@
-package controllers
+package urlshortenerhandler
 
 import (
 	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/db"
-	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/shortener"
+	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/service/urlshortenerservice"
 )
 
-func ShowShortenPage(db *db.DB) http.HandlerFunc {
+type Handler struct {
+	service *urlshortenerservice.URLShortenerService
+	db      *db.DB
+}
+
+func New(db *db.DB) (*Handler, error) {
+	service, err := urlshortenerservice.New(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create URL shortener service: %w", err)
+	}
+
+	return &Handler{
+		service: service,
+		db:      db,
+	}, nil
+}
+
+func (h *Handler) ShowShortenPage() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			url := r.FormValue("url")
-			fmt.Println(url)
 			return
 		}
 
@@ -30,10 +44,9 @@ func ShowShortenPage(db *db.DB) http.HandlerFunc {
 			originalURL = "https://" + originalURL
 		}
 
-		shortURL := shortener.ShortenURL(originalURL)
-		time.Sleep(5 * time.Second)
-		if _, err := db.StoreURLs(shortURL, originalURL); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		shortURL, err := h.service.ShortenURL(originalURL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to shorten URL: %v", err), http.StatusInternalServerError)
 			return
 		}
 

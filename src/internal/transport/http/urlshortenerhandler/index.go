@@ -1,4 +1,4 @@
-package controllers
+package urlshortenerhandler
 
 import (
 	"html/template"

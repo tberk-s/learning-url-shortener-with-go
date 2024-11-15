@@ -1,4 +1,4 @@
-package apiserver
+package webserver
 
 import (
 	"context"
@@ -10,8 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/controllers"
+	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/config"
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/db"
+	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/transport/http/urlshortenerhandler"
 )
 
 const (
@@ -21,73 +22,67 @@ const (
 	DefaultShutdownTimeout = 10 * time.Second
 )
 
+// WebServer represents the web server instance
 type WebServer struct {
-	serverEnv  string
-	dbName     string
-	dbHost     string
-	dbUser     string
-	dbPassword string
-	dbPort     int
-	db         *db.DB
+	config *config.Config
+	db     *db.DB
 }
 
 type Option func(*WebServer)
 
 func WithDBName(name string) Option {
 	return func(s *WebServer) {
-		s.dbName = name
+		s.config.DBName = name
 	}
 }
 
 func WithDBHost(host string) Option {
 	return func(s *WebServer) {
-		s.dbHost = host
+		s.config.DBHost = host
 	}
 }
 
 func WithDBUser(user string) Option {
 	return func(s *WebServer) {
-		s.dbUser = user
+		s.config.DBUser = user
 	}
 }
 
 func WithDBPassword(password string) Option {
 	return func(s *WebServer) {
-		s.dbPassword = password
+		s.config.DBPassword = password
 	}
 }
 
 func WithServerEnv(env string) Option {
 	return func(s *WebServer) {
-		s.serverEnv = env
+		s.config.ServerEnv = env
 	}
 }
 
 func WithDBPort(port int) Option {
 	return func(s *WebServer) {
-		s.dbPort = port
+		s.config.DBPort = port
 	}
 }
 
 func New(opts ...Option) error {
 	ws := &WebServer{
-		dbHost: "localhost",
-		dbName: "urlshortener",
-		dbPort: 5432,
+		config: config.LoadConfig(),
 	}
 	for _, opt := range opts {
 		opt(ws)
 	}
-	if ws.serverEnv == "" {
-		ws.serverEnv = "development"
+	if ws.config.ServerEnv == "" {
+		ws.config.ServerEnv = "development"
 	}
 
 	database, err := db.New(
-		ws.dbUser,
-		ws.dbPassword,
-		ws.dbHost,
-		ws.dbName,
-		ws.dbPort,
+		ws.config.DBUser,
+		ws.config.DBPassword,
+		ws.config.DBHost,
+		ws.config.DBName,
+		ws.config.DBPort,
 	)
 
 	if err != nil {
@@ -96,14 +91,19 @@ func New(opts ...Option) error {
 
 	ws.db = database
 
+	urlHandler, err := urlshortenerhandler.New(ws.db)
+	if err != nil {
+		return fmt.Errorf("failed to create URL handler: %w", err)
+	}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/shorten", controllers.ShowShortenPage(ws.db))
-	mux.HandleFunc("/home", controllers.ShowHomePage) // Move home page to explicit path
+	mux.HandleFunc("/shorten", urlHandler.ShowShortenPage())
+	mux.HandleFunc("/home", urlshortenerhandler.ShowHomePage) // Move home page to explicit path
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			http.Redirect(w, r, "/home", http.StatusPermanentRedirect)
 		} else {
-			controllers.RedirectHandler(ws.db)
+			urlshortenerhandler.RedirectHandler(ws.db)(w, r)
 		}
 	})
 

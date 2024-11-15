@@ -10,6 +10,7 @@ import (
 type URLMap struct {
 	ShortURL    string `db:"short_url"`
 	OriginalURL string `db:"original_url"`
+	Counter     uint64 `db:"counter"`
 }
 
 type DB struct {
@@ -30,18 +31,28 @@ func New(user, password, host, dbname string, port int) (*DB, error) {
 	return &DB{pool: pool}, nil
 }
 
-func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
-	var existingShortURL string
+// GetLastCounter retrieves the last used counter value
+func (db *DB) GetLastCounter() (uint64, error) {
+	var counter uint64
 	err := db.pool.QueryRow(context.Background(),
-		"SELECT short_url FROM urlmap WHERE original_url = $1",
-		originalURL).Scan(&existingShortURL)
+		"SELECT COALESCE(MAX(counter), 0) FROM urlmap").Scan(&counter)
 
-	if err == nil {
-		return existingShortURL, nil
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last counter: %w", err)
 	}
+	return counter, nil
+}
 
-	_, err = db.pool.Exec(context.Background(), "INSERT INTO urlmap (short_url, original_url) VALUES ($1, $2)", shortURL, originalURL)
-	return shortURL, err
+// UpdateCounter stores the new counter value with the URL
+func (db *DB) StoreURLs(shortURL, originalURL string, counter uint64) (string, error) {
+	_, err := db.pool.Exec(context.Background(),
+		"INSERT INTO urlmap (short_url, original_url, counter) VALUES ($1, $2, $3)",
+		shortURL, originalURL, counter)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to store URL with counter: %w", err)
+	}
+	return shortURL, nil
 }
 
 func (db *DB) GetOriginalURL(shortURL string) (string, error) {
