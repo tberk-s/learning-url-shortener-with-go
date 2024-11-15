@@ -2,9 +2,13 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 
+	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/urlshortenererror"
 )
 
 type URLMap struct {
@@ -22,11 +26,11 @@ func New(user, password, host, dbname string, port int) (*DB, error) {
 
 	pool, err := pgxpool.Connect(context.Background(), connStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to db: %w", err)
+		return nil, urlshortenererror.Wrap(err, "failed to connect to db", http.StatusInternalServerError, urlshortenererror.ErrDBConnection)
 	}
 
 	if err := pool.Ping(context.Background()); err != nil {
-		return nil, fmt.Errorf("failed to ping the db: %w", err)
+		return nil, urlshortenererror.Wrap(err, "failed to ping the db", http.StatusInternalServerError, urlshortenererror.ErrDBConnection)
 	}
 	return &DB{pool: pool}, nil
 }
@@ -38,7 +42,7 @@ func (db *DB) GetLastCounter() (uint64, error) {
 		"SELECT COALESCE(MAX(counter), 0) FROM urlmap").Scan(&counter)
 
 	if err != nil {
-		return 0, fmt.Errorf("failed to get last counter: %w", err)
+		return 0, urlshortenererror.Wrap(err, "failed to get last counter", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
 	return counter, nil
 }
@@ -50,7 +54,7 @@ func (db *DB) StoreURLs(shortURL, originalURL string, counter uint64) (string, e
 		shortURL, originalURL, counter)
 
 	if err != nil {
-		return "", fmt.Errorf("failed to store URL with counter: %w", err)
+		return "", urlshortenererror.Wrap(err, "failed to store URL with counter", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
 	return shortURL, nil
 }
@@ -58,19 +62,27 @@ func (db *DB) StoreURLs(shortURL, originalURL string, counter uint64) (string, e
 func (db *DB) GetOriginalURL(shortURL string) (string, error) {
 	var originalURL string
 	err := db.pool.QueryRow(context.Background(), "SELECT original_url FROM urlmap WHERE short_url = $1", shortURL).Scan(&originalURL)
-	return originalURL, err
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", urlshortenererror.Wrap(err, "URL not found", http.StatusNotFound, urlshortenererror.ErrNotFound)
+		}
+		return "", urlshortenererror.Wrap(err, "failed to get original URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+	}
+	return originalURL, nil
 }
 
-func (db *DB) GetAllURLs() ([]URLMap, error) {
-	var urls []URLMap
-	err := db.pool.QueryRow(context.Background(), "SELECT * FROM urlmap").Scan(&urls)
-	return urls, err
-}
+// GetAllUrls ...
+//	func (db *DB) GetAllURLs() ([]URLMap, error) {
+//	var urls []URLMap
+//	err := db.pool.QueryRow(context.Background(), "SELECT * FROM urlmap").Scan(&urls)
+//	return urls, err
+// }
 
-func (db *DB) DeleteURL(shortURL string) error {
-	_, err := db.pool.Exec(context.Background(), "DELETE FROM urlmap WHERE short_url = $1", shortURL)
-	return err
-}
+// func (db *DB) DeleteURL(shortURL string) error {
+// 	_, err := db.pool.Exec(context.Background(), "DELETE FROM urlmap WHERE short_url = $1", shortURL)
+// 	return err
+// 	}
 
 func (db *DB) Close() {
 	db.pool.Close()

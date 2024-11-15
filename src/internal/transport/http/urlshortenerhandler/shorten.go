@@ -1,6 +1,7 @@
 package urlshortenerhandler
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/db"
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/service/urlshortenerservice"
+	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/urlshortenererror"
 )
 
 type Handler struct {
@@ -46,7 +48,18 @@ func (h *Handler) ShowShortenPage() http.HandlerFunc {
 
 		shortURL, err := h.service.ShortenURL(originalURL)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to shorten URL: %v", err), http.StatusInternalServerError)
+			var webErr *urlshortenererror.WebError
+			if errors.As(err, &webErr) {
+				http.Error(w, webErr.Message, webErr.Code)
+				return
+			}
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		tmpl, err := template.ParseFiles("src/internal/views/shorten.html")
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
@@ -54,14 +67,8 @@ func (h *Handler) ShowShortenPage() http.HandlerFunc {
 			"ShortURL": shortURL,
 		}
 
-		tmpl, err := template.ParseFiles("src/internal/views/shorten.html")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 		if err = tmpl.Execute(w, data); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 	}
