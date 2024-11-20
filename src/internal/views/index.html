@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <title>URL Shortener</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
@@ -74,10 +75,15 @@
             background: #1d4ed8;
         }
 
-        #result {
-            margin-top: 1rem;
+        .error-message {
+            color: #dc3545;
             padding: 1rem;
+            margin: 1rem 0;
+            border: 1px solid #dc3545;
             border-radius: 8px;
+            background-color: #f8d7da;
+            text-align: center;
+            display: none;
         }
 
         .loading {
@@ -86,15 +92,8 @@
             margin-top: 1rem;
         }
 
-        .loading::after {
-            content: "⏳";
-            animation: loading 1s infinite;
-        }
-
-        @keyframes loading {
-            0% { opacity: 0.3; }
-            50% { opacity: 1; }
-            100% { opacity: 0.3; }
+        #result {
+            margin-top: 1rem;
         }
     </style>
 </head>
@@ -106,49 +105,59 @@
                 type="text" 
                 name="url" 
                 id="urlInput" 
-                placeholder="Enter URL to shorten (e.g., google.com)" 
+                placeholder="Enter URL (e.g., example.org)" 
                 required
             >
             <button type="submit">Shorten URL</button>
         </form>
+        <div id="error" class="error-message"></div>
         <div id="loading" class="loading">Shortening URL...</div>
         <div id="result"></div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('shortenForm');
             const resultDiv = document.getElementById('result');
             const loading = document.getElementById('loading');
+            const errorDiv = document.getElementById('error');
 
-            if (form) {
-                form.addEventListener('submit', async function (event) {
-                    event.preventDefault();
-                    const url = document.getElementById('urlInput').value;
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                // Reset states
+                errorDiv.style.display = 'none';
+                loading.style.display = 'block';
+                resultDiv.innerHTML = '';
 
-                    // Show loading
-                    loading.style.display = 'block';
-                    resultDiv.innerHTML = '';
+                const url = document.getElementById('urlInput').value;
 
-                    try {
-                        const response = await fetch('/shorten', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                            body: `url=${encodeURIComponent(url)}`
-                        });
+                try {
+                    const response = await fetch('/shorten', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `url=${encodeURIComponent(url)}`
+                    });
 
-                        if (!response.ok) {
-                            throw new Error('Failed to shorten URL');
-                        }
+                    const responseText = await response.text();
 
-                        resultDiv.innerHTML = await response.text();
-                    } catch (error) {
-                        resultDiv.innerHTML = `<div style="color: red;">Error: ${error.message}</div>`;
-                    } finally {
-                        loading.style.display = 'none';
+                    if (!response.ok) {
+                        errorDiv.textContent = responseText;
+                        errorDiv.style.display = 'block';
+                        return;
                     }
-                });
-            }
+
+                    // Replace the entire page content with the success template
+                    document.documentElement.innerHTML = responseText;
+                } catch (error) {
+                    errorDiv.textContent = 'Network error occurred. Please try again.';
+                    errorDiv.style.display = 'block';
+                } finally {
+                    loading.style.display = 'none';
+                }
+            });
         });
     </script>
 </body>

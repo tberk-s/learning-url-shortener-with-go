@@ -4,17 +4,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"strings"
+	"time"
 
-	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/urlshortenererror"
 )
 
+type Database interface {
+	StoreURLs(shortURL, originalURL string) (string, error)
+	GetOriginalURL(shortURL string) (string, error)
+	Close()
+}
+
 type URLMap struct {
-	ShortURL    string `db:"short_url"`
-	OriginalURL string `db:"original_url"`
-	Counter     uint64 `db:"counter"`
+	ShortURL    string    `db:"short_url"`
+	OriginalURL string    `db:"original_url"`
+	Hits        int64     `db:"hits"`
+	CreatedAt   time.Time `db:"created_at"`
 }
 
 type DB struct {
@@ -22,9 +32,21 @@ type DB struct {
 }
 
 func New(user, password, host, dbname string, port int) (*DB, error) {
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", user, password, host, port, dbname)
+	config, err := pgxpool.ParseConfig(fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s",
+		user, password, host, port, dbname,
+	))
+	if err != nil {
+		return nil, urlshortenererror.Wrap(err, "invalid connection config", http.StatusInternalServerError, urlshortenererror.ErrDBConnection)
+	}
 
-	pool, err := pgxpool.Connect(context.Background(), connStr)
+	// Add pool configuration
+	config.MaxConns = 10
+	config.MinConns = 2
+	config.MaxConnLifetime = time.Hour
+	config.MaxConnIdleTime = 30 * time.Minute
+
+	pool, err := pgxpool.ConnectConfig(context.Background(), config)
 	if err != nil {
 		return nil, urlshortenererror.Wrap(err, "failed to connect to db", http.StatusInternalServerError, urlshortenererror.ErrDBConnection)
 	}
@@ -35,33 +57,80 @@ func New(user, password, host, dbname string, port int) (*DB, error) {
 	return &DB{pool: pool}, nil
 }
 
-// GetLastCounter retrieves the last used counter value
-func (db *DB) GetLastCounter() (uint64, error) {
-	var counter uint64
-	err := db.pool.QueryRow(context.Background(),
-		"SELECT COALESCE(MAX(counter), 0) FROM urlmap").Scan(&counter)
+func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
+	log.Printf("Attempting to store URL: short=%s, original=%s", shortURL, originalURL)
 
+	tx, err := db.pool.Begin(context.Background())
 	if err != nil {
-		return 0, urlshortenererror.Wrap(err, "failed to get last counter", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+		return "", urlshortenererror.Wrap(err, "failed to begin transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
-	return counter, nil
-}
+	defer tx.Rollback(context.Background())
 
-// UpdateCounter stores the new counter value with the URL
-func (db *DB) StoreURLs(shortURL, originalURL string, counter uint64) (string, error) {
-	_, err := db.pool.Exec(context.Background(),
-		"INSERT INTO urlmap (short_url, original_url, counter) VALUES ($1, $2, $3)",
-		shortURL, originalURL, counter)
+	var resultShortURL string
 
-	if err != nil {
-		return "", urlshortenererror.Wrap(err, "failed to store URL with counter", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+	// Step 1: Check if the row exists and lock it
+	err = tx.QueryRow(context.Background(),
+		`SELECT short_url 
+         FROM urlmap 
+         WHERE original_url = $1 
+         FOR UPDATE`,
+		originalURL).Scan(&resultShortURL)
+
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		log.Printf("Database error1231231: %v", err)
+		return "", urlshortenererror.Wrap(err, "failed to query URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
-	return shortURL, nil
+
+	if err == nil {
+		// Step 2: Row exists, update it
+		_, err = tx.Exec(context.Background(),
+			`UPDATE urlmap 
+             SET hits = hits + 1, 
+                 short_url = $1 
+             WHERE original_url = $2`,
+			shortURL, originalURL)
+		if err != nil {
+			log.Printf("Database error: %v", err)
+			return "", urlshortenererror.Wrap(err, "failed to update URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+		}
+	} else {
+		// Step 3: Row does not exist, insert a new one
+		err = tx.QueryRow(context.Background(),
+			`INSERT INTO urlmap (short_url, original_url, hits) 
+             VALUES ($1, $2, 1) 
+             RETURNING short_url`,
+			shortURL, originalURL).Scan(&resultShortURL)
+		if err != nil {
+			log.Printf("Database error: %v", err)
+			if strings.Contains(err.Error(), "duplicate key value") {
+				return "", urlshortenererror.Wrap(err, "URL hash collision", http.StatusConflict, urlshortenererror.ErrDuplicate)
+			}
+			return "", urlshortenererror.Wrap(err, "failed to insert URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+		}
+	}
+
+	if err = tx.Commit(context.Background()); err != nil {
+		return "", urlshortenererror.Wrap(err, "failed to commit transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+	}
+
+	log.Printf("Successfully stored URL: %s", resultShortURL)
+	return resultShortURL, nil
 }
 
 func (db *DB) GetOriginalURL(shortURL string) (string, error) {
+	tx, err := db.pool.Begin(context.Background())
+	if err != nil {
+		return "", urlshortenererror.Wrap(err, "failed to begin transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+	}
+	defer tx.Rollback(context.Background())
+
 	var originalURL string
-	err := db.pool.QueryRow(context.Background(), "SELECT original_url FROM urlmap WHERE short_url = $1", shortURL).Scan(&originalURL)
+	err = tx.QueryRow(context.Background(),
+		`UPDATE urlmap 
+         SET hits = hits + 1 
+         WHERE short_url = $1 
+         RETURNING original_url`,
+		shortURL).Scan(&originalURL)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -69,6 +138,11 @@ func (db *DB) GetOriginalURL(shortURL string) (string, error) {
 		}
 		return "", urlshortenererror.Wrap(err, "failed to get original URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
+
+	if err = tx.Commit(context.Background()); err != nil {
+		return "", urlshortenererror.Wrap(err, "failed to commit transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+	}
+
 	return originalURL, nil
 }
 
