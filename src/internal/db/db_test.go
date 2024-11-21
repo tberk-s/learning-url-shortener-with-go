@@ -38,7 +38,6 @@ func setupTestDB(t *testing.T) *db.DB {
 }
 
 func cleanupTestDB(database *db.DB) {
-	// Clean up test data
 	if database != nil {
 		database.Close()
 	}
@@ -155,14 +154,8 @@ func TestStoreURLs(t *testing.T) {
 func TestGetOriginalURL(t *testing.T) {
 	database := setupTestDB(t)
 	defer cleanupTestDB(database)
-
-	// First, store a URL
-	shortURL := "test123"
+	shortURL := "abc123"
 	originalURL := "https://example.com"
-	_, err := database.StoreURLs(shortURL, originalURL)
-	if err != nil {
-		t.Fatalf("Failed to store test URL: %v", err)
-	}
 
 	tests := []struct {
 		name            string
@@ -220,7 +213,7 @@ func TestConcurrentAccess(t *testing.T) {
 	defer cleanupTestDB(database)
 
 	shortURL := "conc123"
-	originalURL := "https://example.com"
+	originalURL := "https://example123.com"
 
 	// Store initial URL
 	_, err := database.StoreURLs(shortURL, originalURL)

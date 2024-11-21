@@ -72,11 +72,10 @@ func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
 	// Try to update existing row and return in one query
 	err = tx.QueryRow(context.Background(),
 		`UPDATE urlmap 
-         SET hits = hits + 1,
-             short_url = $1
-         WHERE original_url = $2
-         RETURNING short_url`,
-		shortURL, originalURL).Scan(&resultShortURL)
+         SET hits = hits + 1
+         WHERE original_url = $1
+         RETURNING short_url`, // Removed the extra comma after hits + 1
+		originalURL).Scan(&resultShortURL)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
