@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/jackc/pgconn"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/urlshortenererror"
@@ -68,44 +69,34 @@ func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
 
 	var resultShortURL string
 
-	// Step 1: Check if the row exists and lock it
+	// Try to update existing row and return in one query
 	err = tx.QueryRow(context.Background(),
-		`SELECT short_url 
-         FROM urlmap 
-         WHERE original_url = $1 
-         FOR UPDATE`,
-		originalURL).Scan(&resultShortURL)
+		`UPDATE urlmap 
+         SET hits = hits + 1,
+             short_url = $1
+         WHERE original_url = $2
+         RETURNING short_url`,
+		shortURL, originalURL).Scan(&resultShortURL)
 
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		log.Printf("Database error1231231: %v", err)
-		return "", urlshortenererror.Wrap(err, "failed to query URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
-	}
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No existing row, try to insert
+			err = tx.QueryRow(context.Background(),
+				`INSERT INTO urlmap (short_url, original_url, hits) 
+                 VALUES ($1, $2, 1) 
+                 RETURNING short_url`,
+				shortURL, originalURL).Scan(&resultShortURL)
 
-	if err == nil {
-		// Step 2: Row exists, update it
-		_, err = tx.Exec(context.Background(),
-			`UPDATE urlmap 
-             SET hits = hits + 1, 
-                 short_url = $1 
-             WHERE original_url = $2`,
-			shortURL, originalURL)
-		if err != nil {
-			log.Printf("Database error: %v", err)
-			return "", urlshortenererror.Wrap(err, "failed to update URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
-		}
-	} else {
-		// Step 3: Row does not exist, insert a new one
-		err = tx.QueryRow(context.Background(),
-			`INSERT INTO urlmap (short_url, original_url, hits) 
-             VALUES ($1, $2, 1) 
-             RETURNING short_url`,
-			shortURL, originalURL).Scan(&resultShortURL)
-		if err != nil {
-			log.Printf("Database error: %v", err)
-			if strings.Contains(err.Error(), "duplicate key value") {
-				return "", urlshortenererror.Wrap(err, "URL hash collision", http.StatusConflict, urlshortenererror.ErrDuplicate)
+			if err != nil {
+				var pgErr *pgconn.PgError
+				if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+					log.Println("URL HASH COLLISION", err, pgErr.Code, pgErr.Message)
+					return "", urlshortenererror.Wrap(err, "URL hash collision", http.StatusConflict, urlshortenererror.ErrDuplicate)
+				}
+				return "", urlshortenererror.Wrap(err, "failed to insert URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 			}
-			return "", urlshortenererror.Wrap(err, "failed to insert URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+		} else {
+			return "", urlshortenererror.Wrap(err, "failed to update URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 		}
 	}
 
