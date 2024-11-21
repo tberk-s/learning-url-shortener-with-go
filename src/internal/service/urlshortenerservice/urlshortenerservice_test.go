@@ -121,36 +121,50 @@ func TestShortenURL_DuplicateShortURL(t *testing.T) {
 	}
 }
 
-func TestShortenURL_HashCollision(t *testing.T) {
-	originalURL := "https://example.org"
-	existingHash := "ca9f4f" // Simulate this hash already exists in DB
+func TestShortenURL_RandomCollision(t *testing.T) {
+	originalURL := "https://google.com"
+	duplicateKey1 := "abc123"
+	duplicateKey2 := "def456"
+	uniqueKey := "xyz789"
 	callCount := 0
 
 	mockDB := &MockDB{
 		storeURLsFunc: func(shortURL, origURL string) (string, error) {
 			callCount++
-			// First attempt will be originalURL:0 which gives the collision
-			if shortURL == existingHash {
-				return "", &urlshortenererror.WebError{
+			switch callCount {
+			case 1:
+				// First attempt - returns first duplicate key error
+				return duplicateKey1, &urlshortenererror.WebError{
 					ErrType:  urlshortenererror.ErrDuplicate,
-					Message:  "URL hash collision",
+					Message:  "Duplicate short URL",
 					Code:     http.StatusConflict,
 					InnerErr: errors.New("unique violation"),
 				}
+			case 2:
+				// Second attempt - returns second duplicate key error
+				return duplicateKey2, &urlshortenererror.WebError{
+					ErrType:  urlshortenererror.ErrDuplicate,
+					Message:  "Duplicate short URL",
+					Code:     http.StatusConflict,
+					InnerErr: errors.New("unique violation"),
+				}
+			default:
+				// Third attempt - finally succeeds
+				return uniqueKey, nil
 			}
-			// Any other hash is fine, means we succeeded with originalURL:N where N > 0
-			return shortURL, nil
 		},
 	}
 
 	service, _ := urlshortenerservice.New(mockDB)
-	result, err := service.ShortenURL(originalURL)
 
+	result, err := service.ShortenURL(originalURL)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
-	if result == existingHash {
-		t.Errorf("Got collision hash %s, expected a different hash", existingHash)
+	if result == duplicateKey1 || result == duplicateKey2 {
+		t.Errorf("Got duplicate key %s, expected a unique key", result)
 	}
-	t.Logf("Took %d attempts to find unique hash, final hash: %s", callCount, result)
+	if result != uniqueKey {
+		t.Errorf("Expected final unique key %s, got %s", uniqueKey, result)
+	}
 }

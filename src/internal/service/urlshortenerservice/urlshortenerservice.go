@@ -1,13 +1,12 @@
 package urlshortenerservice
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/db"
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/urlshortenererror"
@@ -17,6 +16,7 @@ const (
 	shortURLLength = 6 // Length of generated short URLs
 	httpsPrefix    = "https://"
 	httpPrefix     = "http://"
+	charset        = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 )
 
 // URLShortenerService handles the business logic for URL shortening
@@ -104,11 +104,9 @@ func validateHost(host string) error {
 
 // generateUniqueShortURL creates a unique short URL with collision handling
 func (s *URLShortenerService) generateUniqueShortURL(originalURL string) (string, error) {
-	attempt := 0
 	for {
-		shortURL := generateHash(originalURL, attempt)
+		shortURL := generateHash(originalURL)
 		result, err := s.db.StoreURLs(shortURL, originalURL)
-
 		if err == nil {
 			return result, nil
 		}
@@ -117,14 +115,16 @@ func (s *URLShortenerService) generateUniqueShortURL(originalURL string) (string
 		if !errors.As(err, &webErr) || webErr.ErrType != urlshortenererror.ErrDuplicate {
 			return "", err
 		}
-		attempt++
 	}
 }
 
+var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+
 // generateHash creates a hash of the original URL with an attempt counter
-func generateHash(originalURL string, attempt int) string {
-	hash := sha256.New()
-	hashInput := fmt.Sprintf("%s:%d", originalURL, attempt)
-	hash.Write([]byte(hashInput))
-	return hex.EncodeToString(hash.Sum(nil))[:shortURLLength]
+func generateHash(_ string) string {
+	result := make([]byte, shortURLLength)
+	for i := range result {
+		result[i] = charset[rng.Intn(len(charset))]
+	}
+	return string(result)
 }
