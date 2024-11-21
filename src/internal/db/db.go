@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+
 	"net/http"
 	"time"
 
@@ -59,7 +59,6 @@ func New(user, password, host, dbname string, port int) (*DB, error) {
 }
 
 func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
-	log.Printf("Attempting to store URL: short=%s, original=%s", shortURL, originalURL)
 
 	tx, err := db.pool.Begin(context.Background())
 	if err != nil {
@@ -89,7 +88,6 @@ func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
 			if err != nil {
 				var pgErr *pgconn.PgError
 				if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-					log.Println("URL HASH COLLISION", err, pgErr.Code, pgErr.Message)
 					return "", urlshortenererror.Wrap(err, "URL hash collision", http.StatusConflict, urlshortenererror.ErrDuplicate)
 				}
 				return "", urlshortenererror.Wrap(err, "failed to insert URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
@@ -103,7 +101,6 @@ func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
 		return "", urlshortenererror.Wrap(err, "failed to commit transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
 
-	log.Printf("Successfully stored URL: %s", resultShortURL)
 	return resultShortURL, nil
 }
 

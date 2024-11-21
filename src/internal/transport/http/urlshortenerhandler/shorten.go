@@ -14,10 +14,10 @@ import (
 
 type Handler struct {
 	service *urlshortenerservice.URLShortenerService
-	db      *db.DB
+	db      db.Database
 }
 
-func New(db *db.DB) (*Handler, error) {
+func New(db db.Database) (*Handler, error) {
 	service, err := urlshortenerservice.New(db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create URL shortener service: %w", err)
@@ -55,7 +55,6 @@ func (h *Handler) ShowShortenPage() http.HandlerFunc {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-
 		// Success case
 		tmpl, err := template.ParseFiles("src/internal/views/shorten.html")
 		if err != nil {
