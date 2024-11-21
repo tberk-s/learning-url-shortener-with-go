@@ -7,7 +7,7 @@ This URL shortener is a simple application that allows you to shorten long URLs 
 ## Technologies Used:
 
 - **Backend:** Go
-- **Frontend:** HTML
+- **Frontend:** HTML, Javascript, CSS
 - **Database:** PostgreSQL
 
 ---

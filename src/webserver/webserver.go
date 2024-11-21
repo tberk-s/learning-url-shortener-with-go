@@ -99,6 +99,8 @@ func New(opts ...Option) error {
 	}
 
 	mux := http.NewServeMux()
+	fs := http.FileServer(http.Dir("src/internal/static"))
+	mux.Handle("/static/", http.StripPrefix("/static/", fs))
 	mux.HandleFunc("/shorten", urlHandler.ShowShortenPage())
 	mux.HandleFunc("/home", urlshortenerhandler.ShowHomePage) // Move home page to explicit path
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
