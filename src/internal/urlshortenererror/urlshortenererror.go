@@ -6,10 +6,15 @@ import (
 )
 
 var (
-	ErrDBConnection = errors.New("database connection error")
-	ErrDBQuery      = errors.New("database query error")
-	ErrNotFound     = errors.New("resource not found")
-	ErrDuplicate    = errors.New("duplicate entry")
+	ErrDBConnection   = errors.New("database connection error")
+	ErrDBQuery        = errors.New("database query error")
+	ErrNotFound       = errors.New("resource not found")
+	ErrDuplicate      = errors.New("duplicate entry")
+	ErrInvalidInput   = errors.New("invalid input")
+	ErrDuplicateEntry = errors.New("duplicate entry")
+
+	ErrInvalidURL  = errors.New("invalid URL format")    // Add this
+	ErrServerError = errors.New("internal server error") // Add this
 )
 
 type WebError struct {

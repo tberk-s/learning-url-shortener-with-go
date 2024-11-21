@@ -26,6 +26,7 @@ const (
 type WebServer struct {
 	config *config.Config
 	db     *db.DB
+	logger *log.Logger // Add this
 }
 
 type Option func(*WebServer)
@@ -70,6 +71,7 @@ func New(opts ...Option) error {
 	ws := &WebServer{
 		config: config.LoadConfig(),
 	}
+	ws.logger = log.New(os.Stdout, "[URL-Shortener] ", log.LstdFlags|log.Lshortfile)
 	for _, opt := range opts {
 		opt(ws)
 	}
