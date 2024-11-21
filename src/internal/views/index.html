@@ -3,99 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
     <title>URL Shortener</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Inter', sans-serif;
-        }
-
-        body {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: #f5f5f5;
-            padding: 20px;
-        }
-
-        .container {
-            width: 100%;
-            max-width: 600px;
-            background: white;
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        h1 {
-            color: #333;
-            margin-bottom: 1.5rem;
-            text-align: center;
-            font-size: 2rem;
-        }
-
-        form {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        input {
-            padding: 0.8rem 1rem;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.3s ease;
-        }
-
-        input:focus {
-            outline: none;
-            border-color: #2563eb;
-        }
-
-        button {
-            padding: 0.8rem 1.5rem;
-            background: #2563eb;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-        }
-
-        button:hover {
-            background: #1d4ed8;
-        }
-
-        .error-message {
-            color: #dc3545;
-            padding: 1rem;
-            margin: 1rem 0;
-            border: 1px solid #dc3545;
-            border-radius: 8px;
-            background-color: #f8d7da;
-            text-align: center;
-            display: none;
-        }
-
-        .loading {
-            display: none;
-            text-align: center;
-            margin-top: 1rem;
-        }
-
-        #result {
-            margin-top: 1rem;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css/index.css">
 </head>
 <body>
     <div class="container">
@@ -115,50 +25,6 @@
         <div id="result"></div>
     </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const form = document.getElementById('shortenForm');
-            const resultDiv = document.getElementById('result');
-            const loading = document.getElementById('loading');
-            const errorDiv = document.getElementById('error');
-
-            form.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                
-                // Reset states
-                errorDiv.style.display = 'none';
-                loading.style.display = 'block';
-                resultDiv.innerHTML = '';
-
-                const url = document.getElementById('urlInput').value;
-
-                try {
-                    const response = await fetch('/shorten', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: `url=${encodeURIComponent(url)}`
-                    });
-
-                    const responseText = await response.text();
-
-                    if (!response.ok) {
-                        errorDiv.textContent = responseText;
-                        errorDiv.style.display = 'block';
-                        return;
-                    }
-
-                    // Replace the entire page content with the success template
-                    document.documentElement.innerHTML = responseText;
-                } catch (error) {
-                    errorDiv.textContent = 'Network error occurred. Please try again.';
-                    errorDiv.style.display = 'block';
-                } finally {
-                    loading.style.display = 'none';
-                }
-            });
-        });
-    </script>
+    <script src="/static/js/index.js"></script>
 </body>
 </html>
