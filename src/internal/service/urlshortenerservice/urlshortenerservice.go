@@ -2,10 +2,12 @@ package urlshortenerservice
 
 import (
 	"errors"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/db"
@@ -38,7 +40,7 @@ func New(database db.Database) (*URLShortenerService, error) {
 }
 
 // ShortenURL takes a URL and returns a shortened version
-func (s *URLShortenerService) ShortenURL(originalURL string) (string, error) {
+func (s URLShortenerService) ShortenURL(originalURL string) (string, error) {
 	if originalURL == "" {
 		return "", urlshortenererror.Wrap(
 			nil,
@@ -58,6 +60,42 @@ func (s *URLShortenerService) ShortenURL(originalURL string) (string, error) {
 
 	// Generate short URL with collision handling
 	return s.generateUniqueShortURL(originalURL)
+}
+
+func (s URLShortenerService) generateUniqueShortURL(originalURL string) (string, error) {
+	var result string
+	var err error
+	for {
+		shortURL := generateHash()
+		result, err = s.db.StoreURLs(shortURL, originalURL)
+		if err == nil {
+			break
+		}
+
+		var webErr *urlshortenererror.WebError
+		if !errors.As(err, &webErr) || webErr.ErrType != urlshortenererror.ErrDuplicate {
+			return "", err
+		}
+
+		log.Printf("Collision detected! Short URL %s already exists for original URL %s, trying again...", shortURL, originalURL)
+	}
+	return result, nil
+}
+
+var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+var lock sync.Mutex
+
+// generateHash creates a hash of the original URL with an attempt counter
+func generateHash() string {
+	lock.Lock()
+	defer lock.Unlock()
+
+	result := make([]byte, shortURLLength)
+	for i := range result {
+		result[i] = charset[rng.Intn(len(charset))]
+	}
+
+	return string(result)
 }
 
 // normalizeURL ensures the URL has a proper protocol prefix
@@ -100,31 +138,4 @@ func validateHost(host string) error {
 		)
 	}
 	return nil
-}
-
-// generateUniqueShortURL creates a unique short URL with collision handling
-func (s *URLShortenerService) generateUniqueShortURL(originalURL string) (string, error) {
-	for {
-		shortURL := generateHash(originalURL)
-		result, err := s.db.StoreURLs(shortURL, originalURL)
-		if err == nil {
-			return result, nil
-		}
-
-		var webErr *urlshortenererror.WebError
-		if !errors.As(err, &webErr) || webErr.ErrType != urlshortenererror.ErrDuplicate {
-			return "", err
-		}
-	}
-}
-
-var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-// generateHash creates a hash of the original URL with an attempt counter
-func generateHash(_ string) string {
-	result := make([]byte, shortURLLength)
-	for i := range result {
-		result[i] = charset[rng.Intn(len(charset))]
-	}
-	return string(result)
 }
