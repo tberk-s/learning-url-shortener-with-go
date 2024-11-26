@@ -8,10 +8,10 @@ import (
 
 var indexTemplate = template.Must(template.ParseFiles("src/internal/views/index.html"))
 
-func ShowHomePage(w http.ResponseWriter, r *http.Request) {
-	if err := indexTemplate.Execute(w, nil); err != nil {
+// ShowHomePage handles the request to show the home page.
+func ShowHomePage(wr http.ResponseWriter, _ *http.Request) {
+	if err := indexTemplate.Execute(wr, nil); err != nil {
 		log.Println("Template execution error:", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(wr, err.Error(), http.StatusInternalServerError)
 	}
-
 }

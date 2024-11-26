@@ -15,23 +15,27 @@ import (
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/urlshortenererror"
 )
 
+// Database interface to hold the database methods.
 type Database interface {
 	StoreURLs(shortURL, originalURL string) (string, error)
 	GetOriginalURL(shortURL string) (string, error)
 	Close()
 }
 
+// URLMap struct to hold the URL map.
 type URLMap struct {
+	CreatedAt   time.Time `db:"created_at"`
 	ShortURL    string    `db:"short_url"`
 	OriginalURL string    `db:"original_url"`
 	Hits        int64     `db:"hits"`
-	CreatedAt   time.Time `db:"created_at"`
 }
 
+// DB struct to hold the database connection pool.
 type DB struct {
 	pool *pgxpool.Pool
 }
 
+// New creates a new DB instance.
 func New(user, password, host, dbname string, port int) (*DB, error) {
 	config, err := pgxpool.ParseConfig(fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s",
@@ -41,23 +45,19 @@ func New(user, password, host, dbname string, port int) (*DB, error) {
 		return nil, urlshortenererror.Wrap(err, "invalid connection config", http.StatusInternalServerError, urlshortenererror.ErrDBConnection)
 	}
 
-	// Add pool configuration
-	config.MaxConns = 10
-	config.MinConns = 2
-	config.MaxConnLifetime = time.Hour
-	config.MaxConnIdleTime = 30 * time.Minute
-
 	pool, err := pgxpool.ConnectConfig(context.Background(), config)
 	if err != nil {
 		return nil, urlshortenererror.Wrap(err, "failed to connect to db", http.StatusInternalServerError, urlshortenererror.ErrDBConnection)
 	}
 
-	if err := pool.Ping(context.Background()); err != nil {
-		return nil, urlshortenererror.Wrap(err, "failed to ping the db", http.StatusInternalServerError, urlshortenererror.ErrDBConnection)
+	if pingErr := pool.Ping(context.Background()); pingErr != nil {
+		return nil, urlshortenererror.Wrap(pingErr, "failed to ping the db", http.StatusInternalServerError, urlshortenererror.ErrDBConnection)
 	}
+
 	return &DB{pool: pool}, nil
 }
 
+// StoreURLs stores the short URL and original URL in the database.
 func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
 	log.Printf("Attempting to store URL: short=%s, original=%s", shortURL, originalURL)
 
@@ -65,11 +65,15 @@ func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
 	if err != nil {
 		return "", urlshortenererror.Wrap(err, "failed to begin transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() {
+		if deferErr := tx.Rollback(context.Background()); deferErr != nil && !errors.Is(deferErr, pgx.ErrTxClosed) {
+			log.Printf("Failed to rollback transaction: %v", deferErr)
+		}
+	}()
 
 	var resultShortURL string
 
-	// Try to update existing row and return in one query
+	// Try to update existing row and return in one query.
 	err = tx.QueryRow(context.Background(),
 		`UPDATE urlmap 
          SET hits = hits + 1
@@ -77,42 +81,57 @@ func (db *DB) StoreURLs(shortURL, originalURL string) (string, error) {
          RETURNING short_url`, // Removed the extra comma after hits + 1
 		originalURL).Scan(&resultShortURL)
 
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// No existing row, try to insert
-			err = tx.QueryRow(context.Background(),
-				`INSERT INTO urlmap (short_url, original_url, hits) 
-                 VALUES ($1, $2, 1) 
-                 RETURNING short_url`,
-				shortURL, originalURL).Scan(&resultShortURL)
-
-			if err != nil {
-				var pgErr *pgconn.PgError
-				if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-					log.Println("URL HASH COLLISION", err, pgErr.Code, pgErr.Message)
-					return "", urlshortenererror.Wrap(err, "URL hash collision", http.StatusConflict, urlshortenererror.ErrDuplicate)
-				}
-				return "", urlshortenererror.Wrap(err, "failed to insert URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
-			}
-		} else {
-			return "", urlshortenererror.Wrap(err, "failed to update URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
-		}
+	if err == nil {
+		return commitAndReturn(tx, resultShortURL)
 	}
 
-	if err = tx.Commit(context.Background()); err != nil {
-		return "", urlshortenererror.Wrap(err, "failed to commit transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", urlshortenererror.Wrap(err, "failed to update URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
 
-	log.Printf("Successfully stored URL: %s", resultShortURL)
-	return resultShortURL, nil
+	// Try to insert new row
+	err = tx.QueryRow(context.Background(),
+		`INSERT INTO urlmap (short_url, original_url, hits) 
+         VALUES ($1, $2, 1) 
+         RETURNING short_url`,
+		shortURL, originalURL).Scan(&resultShortURL)
+
+	if err == nil {
+		return commitAndReturn(tx, resultShortURL)
+	}
+
+	// Handle insert errors
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+		log.Println("URL HASH COLLISION", err, pgErr.Code, pgErr.Message)
+
+		return "", urlshortenererror.Wrap(err, "URL hash collision", http.StatusConflict, urlshortenererror.ErrDuplicate)
+	}
+
+	return "", urlshortenererror.Wrap(err, "failed to insert URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 }
 
+// Helper function to avoid repetition.
+func commitAndReturn(tx pgx.Tx, shortURL string) (string, error) {
+	if err := tx.Commit(context.Background()); err != nil {
+		return "", urlshortenererror.Wrap(err, "failed to commit transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
+	}
+	log.Printf("Successfully stored URL: %s", shortURL)
+
+	return shortURL, nil
+}
+
+// GetOriginalURL gets the original URL from the short URL.
 func (db *DB) GetOriginalURL(shortURL string) (string, error) {
 	tx, err := db.pool.Begin(context.Background())
 	if err != nil {
 		return "", urlshortenererror.Wrap(err, "failed to begin transaction", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() {
+		if deferErr := tx.Rollback(context.Background()); deferErr != nil && !errors.Is(deferErr, pgx.ErrTxClosed) {
+			log.Printf("Failed to rollback transaction: %v", deferErr)
+		}
+	}()
 
 	var originalURL string
 	err = tx.QueryRow(context.Background(),
@@ -126,6 +145,7 @@ func (db *DB) GetOriginalURL(shortURL string) (string, error) {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", urlshortenererror.Wrap(err, "URL not found", http.StatusNotFound, urlshortenererror.ErrNotFound)
 		}
+
 		return "", urlshortenererror.Wrap(err, "failed to get original URL", http.StatusInternalServerError, urlshortenererror.ErrDBQuery)
 	}
 
@@ -148,6 +168,7 @@ func (db *DB) GetOriginalURL(shortURL string) (string, error) {
 // 	return err
 // 	}
 
+// Close closes the database connection pool.
 func (db *DB) Close() {
 	db.pool.Close()
 }

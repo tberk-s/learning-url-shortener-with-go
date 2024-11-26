@@ -6,24 +6,24 @@ import (
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/db"
 )
 
+// RedirectHandler handles the request to redirect to the original URL.
 func RedirectHandler(database *db.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		shortPath := r.URL.Path[1:]
+	return func(wr http.ResponseWriter, req *http.Request) {
+		shortPath := req.URL.Path[1:]
 
 		if shortPath == "" {
-			http.Error(w, "URL not provided", http.StatusBadRequest)
+			http.Error(wr, "URL not provided", http.StatusBadRequest)
+
 			return
 		}
 
 		originalURL, err := database.GetOriginalURL(shortPath)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(wr, err.Error(), http.StatusNotFound)
+
 			return
 		}
-		/*if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
-			originalURL = "https://" + originalURL
-		}*/
 
-		http.Redirect(w, r, originalURL, http.StatusPermanentRedirect)
+		http.Redirect(wr, req, originalURL, http.StatusPermanentRedirect)
 	}
 }

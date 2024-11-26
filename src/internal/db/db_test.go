@@ -100,11 +100,11 @@ func TestStoreURLs(t *testing.T) {
 	defer cleanupTestDB(database)
 
 	tests := []struct {
+		expectedErrType error
 		name            string
 		shortURL        string
 		originalURL     string
 		expectedError   bool
-		expectedErrType error
 	}{
 		{
 			name:          "Store new URL",
@@ -158,11 +158,11 @@ func TestGetOriginalURL(t *testing.T) {
 	originalURL := "https://example.com"
 
 	tests := []struct {
+		expectedErrType error
 		name            string
 		shortURL        string
 		expectedURL     string
 		expectedError   bool
-		expectedErrType error
 	}{
 		{
 			name:          "Get existing URL",

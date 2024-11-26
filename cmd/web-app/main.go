@@ -22,6 +22,7 @@ func main() {
 		webserver.WithDBPassword(os.Getenv("DB_PASSWORD")),
 		webserver.WithDBPort(func() int {
 			port, _ := strconv.Atoi(os.Getenv("DB_PORT"))
+
 			return port
 		}()),
 	)

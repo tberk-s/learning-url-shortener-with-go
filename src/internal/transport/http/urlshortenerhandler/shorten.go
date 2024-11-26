@@ -12,33 +12,38 @@ import (
 	"github.com/tberk-s/learning-url-shortener-with-go/src/internal/urlshortenererror"
 )
 
+// Handler struct to hold the dependencies.
 type Handler struct {
 	service *urlshortenerservice.URLShortenerService
 	db      *db.DB
 }
 
-func New(db *db.DB) (*Handler, error) {
-	service, err := urlshortenerservice.New(db)
+// New creates a new Handler instance.
+func New(database *db.DB) (*Handler, error) {
+	service, err := urlshortenerservice.New(database)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create URL shortener service: %w", err)
 	}
 
 	return &Handler{
 		service: service,
-		db:      db,
+		db:      database,
 	}, nil
 }
 
+// ShowShortenPage handles the request to show the shorten page.
 func (h *Handler) ShowShortenPage() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	return func(wr http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(wr, "Method not allowed", http.StatusMethodNotAllowed)
+
 			return
 		}
 
-		originalURL := r.FormValue("url")
+		originalURL := req.FormValue("url")
 		if originalURL == "" {
-			http.Error(w, "URL is required", http.StatusBadRequest)
+			http.Error(wr, "URL is required", http.StatusBadRequest)
+
 			return
 		}
 
@@ -46,13 +51,17 @@ func (h *Handler) ShowShortenPage() http.HandlerFunc {
 		if err != nil {
 			var webErr *urlshortenererror.WebError
 			if errors.As(err, &webErr) {
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				wr.Header().Set("Content-Type", "text/plain; charset=utf-8")
 				log.Printf("Error: %v", webErr.Message) // Logs detailed error
-				w.WriteHeader(webErr.Code)
-				w.Write([]byte(webErr.Message)) // Sends detailed error message to client
+				wr.WriteHeader(webErr.Code)
+				if _, writeErr := wr.Write([]byte(webErr.Message)); writeErr != nil {
+					log.Printf("Failed to write error message: %v", writeErr)
+				}
+
 				return
 			}
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			http.Error(wr, "Internal server error", http.StatusInternalServerError)
+
 			return
 		}
 
@@ -60,15 +69,17 @@ func (h *Handler) ShowShortenPage() http.HandlerFunc {
 		tmpl, err := template.ParseFiles("src/internal/views/shorten.html")
 		if err != nil {
 			log.Printf("Template error: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			http.Error(wr, "Internal server error", http.StatusInternalServerError)
+
 			return
 		}
 
-		if err = tmpl.Execute(w, map[string]interface{}{
+		if err = tmpl.Execute(wr, map[string]any{
 			"ShortURL": shortURL,
 		}); err != nil {
 			log.Printf("Template execution error: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			http.Error(wr, "Internal server error", http.StatusInternalServerError)
+
 			return
 		}
 	}
